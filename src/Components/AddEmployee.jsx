@@ -10,7 +10,7 @@ import {
   Platform,
   Image,
   Modal,
-  FlatList,
+  FlatList
 } from 'react-native';
 
 // Image and Document Picker imports
