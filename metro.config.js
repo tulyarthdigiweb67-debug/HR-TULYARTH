@@ -6,6 +6,13 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
  *
  * @type {import('@react-native/metro-config').MetroConfig}
  */
-const config = {};
+const defaultConfig = getDefaultConfig(__dirname);
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config);
+module.exports = mergeConfig(defaultConfig, {
+  resolver: {
+    // Ensure TypeScript sources in dependencies (like datetimepicker) resolve on all platforms
+    sourceExts: Array.from(
+      new Set([...(defaultConfig.resolver?.sourceExts || []), 'ts', 'tsx', 'cjs'])
+    ),
+  },
+});
