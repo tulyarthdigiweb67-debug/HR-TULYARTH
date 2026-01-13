@@ -11,8 +11,13 @@ import employeeLeaveListReducer from './slices/employeeLeaveListSlice';
 import editEmployeeReducer from './slices/editEmployeeSlice';
 import updateLeaveApplicationReducer from './slices/updateLeaveApplicationSlice';
 import leaveApplicationViewReducer from './slices/leaveApplicationViewSlice';
+import employeeAttendanceReducer from './slices/employeeAttendanceSlice';
 import adminDashboardReducer from './slices/adminDashboardSlice';
 import notificationCardReducer from './slices/notificationCardSlice';
+import attendanceListReducer from './slices/attendanceListSlice';
+import allAttendanceRecordReducer from './slices/allAttendanceRecordSlice';
+import employeeAttendanceViewReducer from './slices/employeeAttendanceViewSlice';
+import attendanceSummaryReducer from './slices/attendanceSummarySlice';
 
 export const store = configureStore({
   reducer: {
@@ -30,6 +35,11 @@ export const store = configureStore({
     leaveApplicationView: leaveApplicationViewReducer,
     adminDashboard: adminDashboardReducer,
     notificationCard: notificationCardReducer,
+    attendanceList: attendanceListReducer,
+    allAttendanceRecords: allAttendanceRecordReducer,
+    employeeAttendanceView: employeeAttendanceViewReducer,
+    employeeAttendance: employeeAttendanceReducer,
+    attendanceSummary: attendanceSummaryReducer,
   },
 });
 

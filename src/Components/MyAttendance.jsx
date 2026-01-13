@@ -7,14 +7,30 @@ import {
   ScrollView,
   SafeAreaView,
   Dimensions,
+  Modal,
+  Animated,
+  Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import LinearGradient from 'react-native-linear-gradient';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchEmployeeAttendanceView } from '../redux/slices/employeeAttendanceViewSlice';
 
 const { width } = Dimensions.get('window');
 
 export default function MyAttendance() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const scrollViewRef = useRef(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const dispatch = useDispatch();
+  
+  // Get attendance data from Redux
+  const { items: apiAttendanceData, loading } = useSelector(
+    (state) => state.employeeAttendanceView || { items: [], loading: false }
+  );
 
   // Generate months list - starts from Jan 2025, extends to current month and beyond
   const generateMonths = () => {
@@ -36,12 +52,37 @@ export default function MyAttendance() {
 
   const months = generateMonths();
 
+  // Fetch attendance data on mount and when month changes
+  useEffect(() => {
+    const year = selectedMonth.getFullYear();
+    const month = selectedMonth.getMonth() + 1; // API expects 1-12
+    dispatch(fetchEmployeeAttendanceView({ year, month }));
+  }, [selectedMonth, dispatch]);
+
   // Scroll to current month on mount
   useEffect(() => {
     setTimeout(() => {
       scrollToMonth(new Date());
     }, 100);
   }, []);
+
+  // Modal animation
+  useEffect(() => {
+    if (modalVisible) {
+      Animated.spring(slideAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 65,
+        friction: 11,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [modalVisible]);
 
   // Format month for display
   const formatMonth = (date) => {
@@ -87,7 +128,7 @@ export default function MyAttendance() {
     }
   };
 
-  // Generate attendance data for all days in selected month
+  // Process API data and merge with all days in month
   const getAttendanceData = () => {
     const data = [];
     const year = selectedMonth.getFullYear();
@@ -96,53 +137,105 @@ export default function MyAttendance() {
     // Get number of days in the selected month
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     
-    // Generate attendance for all days in the month
+    // Create a map of API data by date
+    const apiDataMap = {};
+    if (Array.isArray(apiAttendanceData)) {
+      apiAttendanceData.forEach((record) => {
+        if (record.date) {
+          const recordDate = new Date(record.date);
+          if (
+            recordDate.getMonth() === month &&
+            recordDate.getFullYear() === year
+          ) {
+            const dayKey = recordDate.getDate();
+            apiDataMap[dayKey] = record;
+          }
+        }
+      });
+    }
+    
+    // Generate data for all days in the month
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
+      const apiRecord = apiDataMap[day];
       
-      // Generate random check-in times (9 AM to 11 AM)
-      const checkInHours = Math.floor(Math.random() * 3) + 9;
-      const checkInMinutes = Math.floor(Math.random() * 60);
-      const checkInTime = new Date(year, month, day, checkInHours, checkInMinutes);
-      
-      // Format check-in time
-      const checkInFormatted = checkInTime.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
-      
-      // Randomly decide if checked out (70% chance)
-      const hasCheckedOut = Math.random() > 0.3;
-      
+      let status = 'ABSENT';
+      let checkIn = '—';
       let checkOut = '—';
       let totalHours = '—';
+      let timeIn = null;
+      let timeOut = null;
       
-      if (hasCheckedOut) {
-        const checkOutHours = checkInHours + Math.floor(Math.random() * 4) + 6; // 6-9 hours later
-        const checkOutMinutes = Math.floor(Math.random() * 60);
-        const checkOutTime = new Date(year, month, day, checkOutHours, checkOutMinutes);
+      if (apiRecord) {
+        timeIn = apiRecord.timeIn || apiRecord.a_time_in;
+        timeOut = apiRecord.timeOut || apiRecord.a_time_out;
+        const recordStatus = apiRecord.status || apiRecord.a_status;
         
-        checkOut = checkOutTime.toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true,
-        });
+        // Determine status: 'p' = present, 'a' = absent, 'h' = holiday
+        if (recordStatus === 'p' || recordStatus === 'P') {
+          status = 'PRESENT';
+        } else if (recordStatus === 'h' || recordStatus === 'H') {
+          status = 'HOLIDAY';
+        } else {
+          status = 'ABSENT';
+        }
         
-        // Calculate total hours
-        const diffMs = checkOutTime - checkInTime;
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-        totalHours = `${diffHours}h ${diffMinutes}m`;
+        // Format check-in time
+        if (timeIn) {
+          try {
+            const timeInDate = new Date(`2000-01-01T${timeIn}`);
+            checkIn = timeInDate.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+            });
+          } catch (e) {
+            checkIn = timeIn;
+          }
+        }
+        
+        // Format check-out time
+        if (timeOut) {
+          try {
+            const timeOutDate = new Date(`2000-01-01T${timeOut}`);
+            checkOut = timeOutDate.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+            });
+          } catch (e) {
+            checkOut = timeOut;
+          }
+          
+          // Calculate total hours if both times available
+          if (timeIn && timeOut) {
+            try {
+              const inDate = new Date(`2000-01-01T${timeIn}`);
+              const outDate = new Date(`2000-01-01T${timeOut}`);
+              let diffMs = outDate - inDate;
+              if (diffMs < 0) {
+                diffMs += 24 * 3600000; // Add 24 hours if checkout is next day
+              }
+              const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+              const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+              totalHours = `${diffHours}h ${diffMinutes}m`;
+            } catch (e) {
+              totalHours = '—';
+            }
+          }
+        }
       }
       
       data.push({
         id: day,
         date: date,
-        status: 'PRESENT',
-        checkIn: checkInFormatted,
+        status: status,
+        checkIn: checkIn,
         checkOut: checkOut,
         totalHours: totalHours,
+        timeIn: timeIn,
+        timeOut: timeOut,
+        rawData: apiRecord,
       });
     }
     
@@ -150,7 +243,7 @@ export default function MyAttendance() {
     return data.reverse();
   };
 
-  const attendanceData = useMemo(() => getAttendanceData(), [selectedMonth]);
+  const attendanceData = useMemo(() => getAttendanceData(), [selectedMonth, apiAttendanceData]);
 
   // Format date for card
   const formatDateCard = (date) => {
@@ -169,6 +262,66 @@ export default function MyAttendance() {
       record.date.getFullYear() === selectedMonth.getFullYear()
     );
   });
+
+  // Handle card click
+  const handleCardPress = (record) => {
+    setSelectedRecord(record);
+    setModalVisible(true);
+  };
+
+  // Close modal
+  const closeModal = () => {
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => {
+      setModalVisible(false);
+      setSelectedRecord(null);
+    });
+  };
+
+  // Get status icon and color - Simple PhonePe Style
+  const getStatusConfig = (status) => {
+    switch (status) {
+      case 'PRESENT':
+        return {
+          icon: 'check-circle',
+          color: '#10B981',
+          bgColor: '#D1FAE5',
+          gradient: ['#F2FFF9', '#D1FAE5'],
+          iconName: 'check-circle',
+          iconLibrary: 'MaterialIcons',
+        };
+      case 'ABSENT':
+        return {
+          icon: 'calendar-today',
+          color: '#E95420', // Navbar orange color
+          bgColor: '#FFE5D9', // Light orange
+          gradient: ['#FFF8F3', '#FFE5D9'],
+          iconName: 'calendar-today',
+          iconLibrary: 'MaterialIcons',
+        };
+      case 'HOLIDAY':
+        return {
+          icon: 'celebration',
+          color: '#F97316', // Orange shade
+          bgColor: '#FFF4E6', // Light orange
+          gradient: ['#FFFDF5', '#FFEED7'],
+          iconName: 'celebration',
+          iconLibrary: 'MaterialIcons',
+        };
+      default:
+        return {
+          icon: 'calendar-today',
+          color: '#E95420',
+          bgColor: '#FFE5D9',
+          gradient: ['#FFF8F3', '#FFE5D9'],
+          iconName: 'calendar-today',
+          iconLibrary: 'MaterialIcons',
+        };
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -246,7 +399,12 @@ export default function MyAttendance() {
 
         {/* Attendance Records */}
         <View style={styles.attendanceContainer}>
-          {filteredAttendance.length === 0 ? (
+          {loading ? (
+            <View style={styles.loadingState}>
+              <Icon name="hourglass-empty" size={48} color="#9CA3AF" />
+              <Text style={styles.loadingText}>Loading attendance...</Text>
+            </View>
+          ) : filteredAttendance.length === 0 ? (
             <View style={styles.emptyState}>
               <Icon name="event-busy" size={48} color="#9CA3AF" />
               <Text style={styles.emptyStateText}>No attendance records found</Text>
@@ -254,57 +412,206 @@ export default function MyAttendance() {
             </View>
           ) : (
             <View style={styles.attendanceGrid}>
-              {filteredAttendance.map((record) => {
+          {filteredAttendance.map((record, index) => {
                 const dateCard = formatDateCard(record.date);
+                const statusConfig = getStatusConfig(record.status);
+            // Define a set of very light pastel gradients for cards (app-style)
+            const pastelGradients = [
+              ['#FDFBFF', '#E5F0FF'], // very light blue
+              ['#FFFDF7', '#FFEFD9'], // very light orange
+              ['#FDFDFB', '#E9FCE5'], // very light green
+              ['#FFF9FD', '#FFE5F5'], // very light pink
+              ['#F8FDFF', '#E4F7FF'], // very light cyan
+            ];
+            const cardGradient =
+              pastelGradients[index % pastelGradients.length];
                 return (
-                  <View key={record.id} style={styles.attendanceCard}>
-                    {/* Date Indicator */}
-                    <View style={styles.dateIndicator}>
-                      <Text style={styles.dateDay}>{dateCard.day}</Text>
-                      <Text style={styles.dateMonth}>{dateCard.month}</Text>
-                    </View>
-
-                    {/* Status Badge */}
-                    <View style={styles.statusBadge}>
-                      <Icon name="check-circle" size={12} color="#10B981" />
-                      <Text style={styles.statusText}>{record.status}</Text>
-                    </View>
-
-                    {/* Check In/Out Details */}
-                    <View style={styles.timeDetails}>
-                      <View style={styles.timeRow}>
-                        <Text style={styles.timeLabel}>Check In</Text>
-                        <Text style={styles.checkInTime}>{record.checkIn}</Text>
-                      </View>
-                      <View style={styles.timeRow}>
-                        <Text style={styles.timeLabel}>Check Out</Text>
-                        <Text style={[
-                          styles.checkOutTime,
-                          record.checkOut === '—' && styles.pendingTime
-                        ]}>
-                          {record.checkOut}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Total Hours */}
-                    <View style={styles.totalHoursContainer}>
-                      <Icon name="access-time" size={12} color="#F26A1B" />
-                      <Text style={styles.totalLabel}>Total:</Text>
-                      <Text style={[
-                        styles.totalValue,
-                        record.totalHours === '—' && styles.pendingTime
-                      ]}>
-                        {record.totalHours}
+                  <TouchableOpacity
+                    key={record.id}
+                    style={styles.attendanceCard}
+                    onPress={() => handleCardPress(record)}
+                    activeOpacity={0.7}
+                  >
+                    {/* Simple Icon - PhonePe Style */}
+                    <LinearGradient
+                  colors={cardGradient}
+                      style={styles.simpleIconContainer}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      {/* Date Number at Top */}
+                      <Text style={[styles.iconDateText, { color: statusConfig.color }]}>
+                        {dateCard.day}
                       </Text>
-                    </View>
-                  </View>
+                      
+                      {/* Simple Icon - No Circle */}
+                      <Icon 
+                        name={statusConfig.iconName} 
+                        size={28} 
+                        color={statusConfig.color} 
+                      />
+                    </LinearGradient>
+                  </TouchableOpacity>
                 );
               })}
             </View>
           )}
         </View>
       </ScrollView>
+
+      {/* Details Modal */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeModal}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={closeModal}
+        >
+          <Animated.View
+            style={[
+              styles.modalContent,
+              {
+                transform: [
+                  {
+                    translateY: slideAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [600, 0],
+                    }),
+                  },
+                ],
+                opacity: slideAnim,
+              },
+            ]}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+              {selectedRecord && (
+                <>
+                  {/* Modal Header */}
+                  <View style={styles.modalHeader}>
+                    <View style={styles.modalHeaderContent}>
+                      <View style={styles.modalDateContainer}>
+                        <Text style={styles.modalDateDay}>
+                          {formatDateCard(selectedRecord.date).day}
+                        </Text>
+                        <Text style={styles.modalDateMonth}>
+                          {formatDateCard(selectedRecord.date).month}
+                        </Text>
+                        <Text style={styles.modalDateYear}>
+                          {selectedRecord.date.getFullYear()}
+                        </Text>
+                      </View>
+                      <View style={styles.modalHeaderRight}>
+                        {(() => {
+                          const statusConfig = getStatusConfig(selectedRecord.status);
+                          return (
+                            <View style={[styles.modalStatusBadge, { backgroundColor: statusConfig.bgColor }]}>
+                              {statusConfig.iconLibrary === 'MaterialCommunityIcons' ? (
+                                <MaterialCommunityIcons 
+                                  name={statusConfig.iconName} 
+                                  size={18} 
+                                  color={statusConfig.color} 
+                                />
+                              ) : (
+                                <Icon name={statusConfig.iconName} size={18} color={statusConfig.color} />
+                              )}
+                              <Text style={[styles.modalStatusText, { color: statusConfig.color }]}>
+                                {selectedRecord.status}
+                              </Text>
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.modalCloseButton}
+                      onPress={closeModal}
+                      activeOpacity={0.7}
+                    >
+                      <Icon name="close" size={24} color="#6B7280" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Modal Body */}
+                  <ScrollView
+                    style={styles.modalBody}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {/* Check In Card - Advanced */}
+                    <View style={styles.detailCard}>
+                      <View style={[styles.detailCardIcon, { backgroundColor: '#D1FAE5', borderWidth: 2, borderColor: '#10B981' }]}>
+                        <MaterialCommunityIcons name="clock-in" size={24} color="#059669" />
+                      </View>
+                      <View style={styles.detailCardContent}>
+                        <Text style={styles.detailCardLabel}>Check In</Text>
+                        <Text style={[styles.detailCardValue, styles.checkInValue]}>
+                          {selectedRecord.checkIn}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Check Out Card - Advanced */}
+                    <View style={styles.detailCard}>
+                      <View style={[styles.detailCardIcon, { backgroundColor: '#FFE5D9', borderWidth: 2, borderColor: '#E95420' }]}>
+                        <MaterialCommunityIcons name="clock-out" size={24} color="#E95420" />
+                      </View>
+                      <View style={styles.detailCardContent}>
+                        <Text style={styles.detailCardLabel}>Check Out</Text>
+                        <Text style={[
+                          styles.detailCardValue,
+                          selectedRecord.checkOut === '—' ? styles.pendingValue : styles.checkOutValue
+                        ]}>
+                          {selectedRecord.checkOut}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Total Hours Card - Advanced */}
+                    <View style={styles.detailCard}>
+                      <View style={[styles.detailCardIcon, { backgroundColor: '#FEF3C7', borderWidth: 2, borderColor: '#FBBF24' }]}>
+                        <MaterialCommunityIcons name="timer-sand" size={24} color="#D97706" />
+                      </View>
+                      <View style={styles.detailCardContent}>
+                        <Text style={styles.detailCardLabel}>Total Working Hours</Text>
+                        <Text style={[
+                          styles.detailCardValue,
+                          selectedRecord.totalHours === '—' ? styles.pendingValue : styles.totalHoursValue
+                        ]}>
+                          {selectedRecord.totalHours}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Additional Info */}
+                    {selectedRecord.rawData && (
+                      <View style={styles.additionalInfoCard}>
+                        <Text style={styles.additionalInfoTitle}>Additional Information</Text>
+                        {selectedRecord.rawData.created_at && (
+                          <View style={styles.infoRow}>
+                            <Text style={styles.infoLabel}>Recorded At:</Text>
+                            <Text style={styles.infoValue}>
+                              {new Date(selectedRecord.rawData.created_at).toLocaleString('en-US', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </ScrollView>
+                </>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -442,105 +749,206 @@ const styles = StyleSheet.create({
   attendanceGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 8,
+    justifyContent: 'flex-start',
+    gap: 16,
     marginTop: 20,
+    paddingHorizontal: 8,
   },
   attendanceCard: {
-    width: (width - 40) / 2, // Two cards per row with smaller padding
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 8,
-    elevation: 3,
+    marginBottom: 12,
+  },
+  simpleIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
-    shadowRadius: 4,
+    shadowRadius: 2,
+    position: 'relative',
   },
-  dateIndicator: {
-    backgroundColor: '#F26A1B',
-    borderRadius: 10,
-    padding: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-    minHeight: 55,
-  },
-  dateDay: {
-    fontSize: 22,
+  iconDateText: {
+    position: 'absolute',
+    top: 6,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
-    lineHeight: 26,
+    lineHeight: 14,
   },
-  dateMonth: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginTop: 1,
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
   },
-  statusBadge: {
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+  },
+  modalHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E6FFF3',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    padding: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#10B981',
-    marginLeft: 4,
-  },
-  timeDetails: {
-    marginBottom: 8,
-  },
-  timeRow: {
+  modalHeaderContent: {
+    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
   },
-  timeLabel: {
-    fontSize: 10,
-    fontWeight: '600',
+  modalDateContainer: {
+    alignItems: 'flex-start',
+  },
+  modalDateDay: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#1F2937',
+    lineHeight: 36,
+  },
+  modalDateMonth: {
+    fontSize: 14,
+    fontWeight: '700',
     color: '#6B7280',
+    letterSpacing: 1,
+    marginTop: 2,
   },
-  checkInTime: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#10B981',
+  modalDateYear: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    marginTop: 2,
   },
-  checkOutTime: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#111827',
+  modalHeaderRight: {
+    alignItems: 'flex-end',
   },
-  pendingTime: {
-    color: '#F26A1B',
-  },
-  totalHoursContainer: {
+  modalStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
   },
-  totalLabel: {
-    fontSize: 10,
+  modalStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  modalBody: {
+    padding: 20,
+    paddingTop: 16,
+  },
+  detailCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  detailCardIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  detailCardContent: {
+    flex: 1,
+  },
+  detailCardLabel: {
+    fontSize: 12,
     fontWeight: '600',
     color: '#6B7280',
-    marginLeft: 4,
+    marginBottom: 4,
+    letterSpacing: 0.3,
   },
-  totalValue: {
-    fontSize: 11,
+  detailCardValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  checkInValue: {
+    color: '#10B981',
+    fontWeight: '800',
+  },
+  checkOutValue: {
+    color: '#E95420', // Navbar orange
+    fontWeight: '800',
+  },
+  totalHoursValue: {
+    color: '#F97316', // Orange shade
+    fontWeight: '800',
+  },
+  pendingValue: {
+    color: '#F97316',
+    fontSize: 16,
+  },
+  additionalInfoCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  additionalInfoTitle: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#111827',
-    marginLeft: 2,
+    color: '#374151',
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  infoLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  infoValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1F2937',
   },
   emptyState: {
     alignItems: 'center',
@@ -557,6 +965,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
     marginTop: 4,
+  },
+  loadingState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginTop: 16,
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,13 @@ import {
   Modal,
   FlatList,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { LinearGradient } from 'react-native-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchAllAttendanceRecords } from '../redux/slices/allAttendanceRecordSlice';
 
 // Custom Dropdown Component
 const CustomDropdown = ({ value, onChange, placeholder, options }) => {
@@ -207,35 +210,143 @@ const MonthPicker = ({ value, onChange, placeholder }) => {
   );
 };
 
+const STATUS_META = {
+  p: { label: 'Present', gradient: ['#10B981', '#059669'], icon: 'check-circle' },
+  a: { label: 'Absent', gradient: ['#F97316', '#EA580C'], icon: 'alert-circle' },
+  h: { label: 'Half Day', gradient: ['#FACC15', '#EAB308'], icon: 'clock-alert' },
+  l: { label: 'On Leave', gradient: ['#60A5FA', '#2563EB'], icon: 'airplane' },
+  default: { label: 'Not Marked', gradient: ['#94A3B8', '#64748B'], icon: 'help-circle' },
+};
+
+const getInitials = (value = '') => {
+  const chunks = value
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() || '');
+  if (chunks.length === 0) return 'NA';
+  if (chunks.length === 1) return chunks[0].slice(0, 2);
+  return `${chunks[0]}${chunks[chunks.length - 1]}`;
+};
+
+const parseRecordDate = (value) => {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 export default function AllAttendenceRecords() {
+  const dispatch = useDispatch();
+  const {
+    items: apiItems = [],
+    loading,
+    error,
+  } = useSelector((state) => state.allAttendanceRecords || {});
+
   const [attendanceStatus, setAttendanceStatus] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [specificDate, setSpecificDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tempSpecificDate, setTempSpecificDate] = useState(new Date());
-  const [recordCount, setRecordCount] = useState(13);
+  const [appliedFilters, setAppliedFilters] = useState({
+    attendanceStatus: 'all',
+    month: null,
+    specificDate: null,
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const recordsPerPage = 8;
 
-  // Sample attendance data
-  const attendanceData = [
-    { id: 1, sno: 1, avatar: 'dk', employee: 'demo2 kumar', designation: '-', department: 'IT', date: '2025-11-17', checkIn: '13:58:24', checkOut: '-', status: 'Present' },
-    { id: 2, sno: 2, avatar: 'RB', employee: 'Rohit Bisht', designation: '-', department: 'HR', date: '2025-11-15', checkIn: '11:10:49', checkOut: '18:12:26', status: 'Present' },
-    { id: 3, sno: 3, avatar: 'RB', employee: 'Rohit Bisht', designation: '-', department: 'HR', date: '2025-11-14', checkIn: '10:10:49', checkOut: '18:12:26', status: 'Present' },
-    { id: 4, sno: 4, avatar: 'pm', employee: 'pradeep maithani', designation: '-', department: 'HR', date: '2025-11-14', checkIn: '10:10:49', checkOut: '18:12:26', status: 'Present' },
-    { id: 5, sno: 5, avatar: 'RB', employee: 'Rohit Bisht', designation: '-', department: 'HR', date: '2025-11-13', checkIn: '10:10:49', checkOut: '17:12:26', status: 'Present' },
-    { id: 6, sno: 6, avatar: 'pm', employee: 'pradeep maithani', designation: '-', department: 'HR', date: '2025-11-13', checkIn: '10:10:49', checkOut: '17:12:26', status: 'Present' },
-    { id: 7, sno: 7, avatar: 'RB', employee: 'Rohit Bisht', designation: '-', department: 'HR', date: '2025-11-12', checkIn: '11:50:49', checkOut: '18:12:26', status: 'Present' },
-    { id: 8, sno: 8, avatar: 'pm', employee: 'pradeep maithani', designation: '-', department: 'HR', date: '2025-11-12', checkIn: '11:50:49', checkOut: '18:12:26', status: 'Present' },
-    { id: 9, sno: 9, avatar: 'RB', employee: 'Rohit Bisht', designation: 'Manager', department: 'Sales', date: '2025-11-11', checkIn: '09:30:00', checkOut: '18:00:00', status: 'Present' },
-    { id: 10, sno: 10, avatar: 'SK', employee: 'Suresh Kumar', designation: 'Developer', department: 'IT', date: '2025-11-11', checkIn: '10:00:00', checkOut: '19:00:00', status: 'Present' },
+  useEffect(() => {
+    dispatch(fetchAllAttendanceRecords());
+  }, [dispatch]);
+
+  const handleRefresh = () => {
+    dispatch(fetchAllAttendanceRecords());
+  };
+
+  const attendanceStatusOptions = [
+    { label: 'All Status', value: 'all' },
+    { label: 'Present', value: 'p' },
+    { label: 'Absent', value: 'a' },
+    { label: 'On Leave', value: 'l' },
+    { label: 'Half Day', value: 'h' },
   ];
 
-  // Calculate pagination
-  const totalPages = Math.ceil(attendanceData.length / recordsPerPage);
+  const normalizedRecords = useMemo(() => {
+    if (!Array.isArray(apiItems)) return [];
+    return apiItems.map((item, index) => {
+      const recordDate = parseRecordDate(item?.date);
+      const statusCode = (item?.a_status || '').toLowerCase();
+      const statusInfo = STATUS_META[statusCode] || STATUS_META.default;
+      return {
+        id: `${item?.employee_id || 'emp'}-${item?.date || index}`,
+        sno: index + 1,
+        employee: item?.name || 'Unknown Employee',
+        initials: getInitials(item?.name || 'Unknown'),
+        designation: item?.designation || '-',
+        department: item?.department || '-',
+        date: item?.date || '',
+        recordDate,
+        checkIn: item?.a_time_in || '-',
+        checkOut: item?.a_time_out || '-',
+        statusCode,
+        statusLabel: statusInfo.label,
+        statusGradient: statusInfo.gradient,
+        statusIcon: statusInfo.icon,
+        employeeId: item?.employee_id ?? '--',
+      };
+    });
+  }, [apiItems]);
+
+  const filteredRecords = useMemo(() => {
+    return normalizedRecords.filter((record) => {
+      const matchesStatus =
+        appliedFilters.attendanceStatus === 'all' ||
+        record.statusCode === appliedFilters.attendanceStatus;
+
+      const matchesMonth = !appliedFilters.month
+        ? true
+        : record.recordDate &&
+          record.recordDate.getMonth() === appliedFilters.month.getMonth() &&
+          record.recordDate.getFullYear() === appliedFilters.month.getFullYear();
+
+      const matchesDate = !appliedFilters.specificDate
+        ? true
+        : record.recordDate &&
+          record.recordDate.toDateString() === appliedFilters.specificDate.toDateString();
+
+      return matchesStatus && matchesMonth && matchesDate;
+    });
+  }, [normalizedRecords, appliedFilters]);
+
+  const totalRecords = filteredRecords.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / recordsPerPage));
   const startIndex = (currentPage - 1) * recordsPerPage;
   const endIndex = startIndex + recordsPerPage;
-  const currentRecords = attendanceData.slice(startIndex, endIndex);
+  const currentRecords = filteredRecords.slice(startIndex, endIndex);
+  const disablePrev = currentPage === 1 || totalRecords === 0;
+  const disableNext = currentPage === totalPages || totalRecords === 0;
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const summaryStats = useMemo(() => {
+    return apiItems.reduce(
+      (acc, item) => {
+        const code = (item?.a_status || '').toLowerCase();
+        acc.total += 1;
+        if (code === 'p') acc.present += 1;
+        else if (code === 'a') acc.absent += 1;
+        else if (code === 'h') acc.halfDay += 1;
+        else if (code === 'l') acc.onLeave += 1;
+        else acc.other += 1;
+        return acc;
+      },
+      { total: 0, present: 0, absent: 0, halfDay: 0, onLeave: 0, other: 0 }
+    );
+  }, [apiItems]);
 
   const handleNextPage = () => {
     if (currentPage < totalPages) {
@@ -248,14 +359,6 @@ export default function AllAttendenceRecords() {
       setCurrentPage(currentPage - 1);
     }
   };
-
-  const attendanceStatusOptions = [
-    { label: 'All Status', value: 'all' },
-    { label: 'Present', value: 'present' },
-    { label: 'Absent', value: 'absent' },
-    { label: 'On Leave', value: 'onLeave' },
-    { label: 'Half Day', value: 'halfDay' },
-  ];
 
   const formatSpecificDate = (date) => {
     if (!date) return '';
@@ -286,21 +389,24 @@ export default function AllAttendenceRecords() {
   };
 
   const handleApplyFilters = () => {
-    // TODO: Implement filter logic
-    console.log('Applying filters:', {
+    setAppliedFilters({
       attendanceStatus,
-      selectedMonth,
+      month: selectedMonth,
       specificDate,
     });
-    // Update record count based on filters
-    // setRecordCount(filteredRecords.length);
+    setCurrentPage(1);
   };
 
   const handleResetAll = () => {
     setAttendanceStatus('all');
     setSelectedMonth(null);
     setSpecificDate(null);
-    setRecordCount(13);
+    setAppliedFilters({
+      attendanceStatus: 'all',
+      month: null,
+      specificDate: null,
+    });
+    setCurrentPage(1);
   };
 
   return (
@@ -456,9 +562,31 @@ export default function AllAttendenceRecords() {
         {/* Results Summary Section */}
         <View style={styles.resultsCard}>
           <View style={styles.resultsContent}>
-            <Text style={styles.resultsText}>Showing All records</Text>
-            <Text style={styles.resultsCount}>Found 10 records</Text>
+            {loading ? (
+              <>
+                <ActivityIndicator color="#667EEA" size="small" />
+                <Text style={styles.resultsText}>Loading attendance records...</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.resultsText}>
+                  {totalRecords > 0
+                    ? `Showing ${totalRecords} record${totalRecords === 1 ? '' : 's'}`
+                    : 'No records match your filters'}
+                </Text>
+                <Text style={styles.resultsCount}>
+                  {summaryStats.total} total entr{summaryStats.total === 1 ? 'y' : 'ies'}
+                </Text>
+              </>
+            )}
+            {!loading && error && (
+              <Text style={styles.resultsError}>Unable to refresh data. Please try again.</Text>
+            )}
           </View>
+          <TouchableOpacity style={styles.refreshButton} activeOpacity={0.85} onPress={handleRefresh}>
+            <MaterialCommunityIcons name="reload" size={18} color="#667EEA" />
+            <Text style={styles.refreshButtonText}>Refresh</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Attendance Records Table */}
@@ -470,9 +598,23 @@ export default function AllAttendenceRecords() {
               <Text style={styles.tableTopTitle}>Attendance Records</Text>
             </View>
             <View style={styles.tableStatsRow}>
-              <View style={styles.statBadge}>
+              <View style={[styles.statBadge, styles.presentStatBadge]}>
                 <MaterialCommunityIcons name="account-check" size={16} color="#10B981" />
-                <Text style={styles.statText}>10 Present</Text>
+                <Text style={[styles.statText, styles.presentStatText]}>
+                  {summaryStats.present} Present
+                </Text>
+              </View>
+              <View style={[styles.statBadge, styles.absentStatBadge]}>
+                <MaterialCommunityIcons name="account-cancel" size={16} color="#EF4444" />
+                <Text style={[styles.statText, styles.absentStatText]}>
+                  {summaryStats.absent} Absent
+                </Text>
+              </View>
+              <View style={[styles.statBadge, styles.halfDayStatBadge]}>
+                <MaterialCommunityIcons name="clock-outline" size={16} color="#F97316" />
+                <Text style={[styles.statText, styles.halfDayStatText]}>
+                  {summaryStats.halfDay} Half Day
+                </Text>
               </View>
             </View>
           </View>
@@ -528,7 +670,33 @@ export default function AllAttendenceRecords() {
                 nestedScrollEnabled={true}
                 showsVerticalScrollIndicator={true}
               >
-                {currentRecords.map((item, index) => (
+                {currentRecords.length === 0 ? (
+                  <View style={styles.tableEmptyState}>
+                    {loading ? (
+                      <>
+                        <ActivityIndicator color="#667EEA" size="small" />
+                        <Text style={styles.tableEmptyText}>Loading attendance records...</Text>
+                      </>
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons
+                          name="clipboard-alert-outline"
+                          size={32}
+                          color="#94A3B8"
+                        />
+                        <Text style={styles.tableEmptyText}>
+                          {error
+                            ? 'Unable to load attendance records. Please refresh.'
+                            : 'No records match the selected filters.'}
+                        </Text>
+                        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+                          <Text style={styles.retryButtonText}>Retry</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                ) : (
+                  currentRecords.map((item, index) => (
                   <TouchableOpacity
                     key={item.id}
                     style={[
@@ -551,11 +719,15 @@ export default function AllAttendenceRecords() {
                           end={{ x: 1, y: 1 }}
                           style={styles.avatarContainer}
                         >
-                          <Text style={styles.avatarText}>{item.avatar}</Text>
+                            <Text style={styles.avatarText}>{item.initials}</Text>
                         </LinearGradient>
                         <View style={styles.employeeInfo}>
                           <Text style={styles.employeeName}>{item.employee}</Text>
-                          <Text style={styles.employeeSubtext}>ID: EMP{String(item.id).padStart(3, '0')}</Text>
+                            <Text style={styles.employeeSubtext}>
+                              {item.employeeId !== '--'
+                                ? `ID: EMP${String(item.employeeId).padStart(3, '0')}`
+                                : 'ID: N/A'}
+                            </Text>
                         </View>
                       </View>
                     </View>
@@ -574,9 +746,16 @@ export default function AllAttendenceRecords() {
                     
                     <View style={[styles.tableCell, styles.dateColumn]}>
                       <View style={styles.dateContainer}>
-                        <Text style={styles.dateText}>{item.date.split('-')[2]}</Text>
+                          <Text style={styles.dateText}>
+                            {item.date ? item.date.split('-')[2] : '--'}
+                          </Text>
                         <Text style={styles.dateSubtext}>
-                          {new Date(item.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                            {item.date
+                              ? new Date(`${item.date}T00:00:00`).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  year: 'numeric',
+                                })
+                              : '--'}
                         </Text>
                       </View>
                     </View>
@@ -584,30 +763,35 @@ export default function AllAttendenceRecords() {
                     <View style={[styles.tableCell, styles.timeColumn]}>
                       <View style={styles.timeBox}>
                         <MaterialCommunityIcons name="clock-outline" size={14} color="#10B981" />
-                        <Text style={[styles.timeText, { color: '#10B981' }]}>{item.checkIn}</Text>
+                          <Text style={[styles.timeText, { color: '#10B981' }]}>
+                            {item.checkIn}
+                          </Text>
                       </View>
                     </View>
                     
                     <View style={[styles.tableCell, styles.timeColumn]}>
                       <View style={styles.timeBox}>
                         <MaterialCommunityIcons name="clock-outline" size={14} color="#EF4444" />
-                        <Text style={[styles.timeText, { color: '#EF4444' }]}>{item.checkOut}</Text>
+                          <Text style={[styles.timeText, { color: '#EF4444' }]}>
+                            {item.checkOut}
+                          </Text>
                       </View>
                     </View>
                     
                     <View style={[styles.tableCell, styles.statusColumn]}>
                       <LinearGradient
-                        colors={['#10B981', '#059669']}
+                          colors={item.statusGradient}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                         style={styles.statusBadge}
                       >
-                        <MaterialCommunityIcons name="check-circle" size={14} color="#FFFFFF" />
-                        <Text style={styles.statusText}>{item.status}</Text>
+                          <MaterialCommunityIcons name={item.statusIcon} size={14} color="#FFFFFF" />
+                          <Text style={styles.statusText}>{item.statusLabel}</Text>
                       </LinearGradient>
                     </View>
                   </TouchableOpacity>
-                ))}
+                  ))
+                )}
               </ScrollView>
             </View>
           </ScrollView>
@@ -615,18 +799,23 @@ export default function AllAttendenceRecords() {
           {/* Table Footer with Pagination */}
           <View style={styles.tableFooter}>
             <Text style={styles.footerText}>
-              Showing {startIndex + 1}-{Math.min(endIndex, attendanceData.length)} of {attendanceData.length} records
+              {totalRecords === 0
+                ? 'No records to display'
+                : `Showing ${startIndex + 1}-${Math.min(endIndex, totalRecords)} of ${totalRecords} records`}
             </Text>
             <View style={styles.paginationControls}>
               <TouchableOpacity 
-                style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
+                style={[
+                  styles.paginationButton,
+                  (disablePrev) && styles.paginationButtonDisabled,
+                ]}
                 onPress={handlePrevPage}
-                disabled={currentPage === 1}
+                disabled={disablePrev}
               >
                 <MaterialCommunityIcons 
                   name="chevron-left" 
                   size={20} 
-                  color={currentPage === 1 ? '#CBD5E1' : '#667EEA'} 
+                  color={disablePrev ? '#CBD5E1' : '#667EEA'} 
                 />
               </TouchableOpacity>
               
@@ -644,14 +833,17 @@ export default function AllAttendenceRecords() {
               </View>
               
               <TouchableOpacity 
-                style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
+                style={[
+                  styles.paginationButton,
+                  (disableNext) && styles.paginationButtonDisabled,
+                ]}
                 onPress={handleNextPage}
-                disabled={currentPage === totalPages}
+                disabled={disableNext}
               >
                 <MaterialCommunityIcons 
                   name="chevron-right" 
                   size={20} 
-                  color={currentPage === totalPages ? '#CBD5E1' : '#667EEA'} 
+                  color={disableNext ? '#CBD5E1' : '#667EEA'} 
                 />
               </TouchableOpacity>
             </View>
@@ -1097,11 +1289,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginHorizontal: 20,
     marginTop: 8,
-    padding: 24,
+    padding: 20,
     borderWidth: 2,
     borderColor: '#E2E8F0',
     borderStyle: 'dashed',
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -1109,7 +1304,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   resultsContent: {
-    alignItems: 'center',
+    flex: 1,
   },
   resultsText: {
     fontSize: 15,
@@ -1121,6 +1316,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#667EEA',
+  },
+  resultsError: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#DC2626',
+    fontWeight: '500',
+  },
+  refreshButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  refreshButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
   },
   // Date Picker Modal Styles
   datePickerBackdrop: {
@@ -1207,16 +1424,38 @@ const styles = StyleSheet.create({
   statBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ECFDF5',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     gap: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   statText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#10B981',
+    color: '#475569',
+  },
+  presentStatBadge: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  presentStatText: {
+    color: '#047857',
+  },
+  absentStatBadge: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  absentStatText: {
+    color: '#B91C1C',
+  },
+  halfDayStatBadge: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+  },
+  halfDayStatText: {
+    color: '#C2410C',
   },
   tableScrollView: {
     flex: 1,
@@ -1435,6 +1674,31 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   // Table Footer
+  tableEmptyState: {
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  tableEmptyText: {
+    fontSize: 13,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  retryButton: {
+    marginTop: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+  },
+  retryButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4C1D95',
+  },
   tableFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',

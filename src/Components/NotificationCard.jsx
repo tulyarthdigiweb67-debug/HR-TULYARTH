@@ -101,6 +101,18 @@ export default function NotificationCard({ notification, onBack, notificationId 
     };
   }, [dispatch, notificationId, notification?.n_id]);
 
+  // Ensure editor is always blurred and non-interactive
+  useEffect(() => {
+    if (richEditorRef.current && displayNotification) {
+      const timer = setTimeout(() => {
+        if (richEditorRef.current) {
+          richEditorRef.current.blurContentEditor();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [displayNotification]);
+
   const handleRefresh = () => {
     console.log('[NOTIFICATION_CARD] Manual refresh triggered');
     const idToFetch = notificationId || notification?.n_id;
@@ -285,18 +297,34 @@ export default function NotificationCard({ notification, onBack, notificationId 
 
             <View style={styles.divider} />
 
-            {/* Rich description */}
+            {/* Rich description - Completely read-only, no editing for anyone */}
             <View style={styles.descriptionContainer}>
-              <View style={styles.descriptionTextWrapper}>
+              <View 
+                style={styles.descriptionTextWrapper} 
+                pointerEvents="none"
+                onStartShouldSetResponder={() => false}
+                onMoveShouldSetResponder={() => false}
+              >
                 <RichEditor
                   ref={richEditorRef}
                   initialContentHTML={richDescriptionHtml}
                   useContainer={true}
                   scrollEnabled={false}
                   editable={false}
+                  disabled={true}
                   initialHeight={180}
                   style={styles.richEditor}
                   containerStyle={styles.richEditorContainer}
+                  onFocus={() => {
+                    if (richEditorRef.current) {
+                      richEditorRef.current.blurContentEditor();
+                    }
+                  }}
+                  onCursorPosition={() => {
+                    if (richEditorRef.current) {
+                      richEditorRef.current.blurContentEditor();
+                    }
+                  }}
                   editorStyle={{
                     backgroundColor: 'transparent',
                     color: '#374151',
@@ -309,8 +337,30 @@ export default function NotificationCard({ notification, onBack, notificationId 
                       text-align:justify;
                       padding:0;
                       margin:0;
+                      user-select:none !important;
+                      -webkit-user-select:none !important;
+                      -moz-user-select:none !important;
+                      -ms-user-select:none !important;
+                      caret-color: transparent !important;
+                      pointer-events:none !important;
+                      -webkit-touch-callout:none !important;
+                      -webkit-tap-highlight-color:transparent !important;
+                      touch-action:none !important;
+                      outline:none !important;
+                      -webkit-user-modify:read-only !important;
+                    * {
+                      user-select:none !important;
+                      -webkit-user-select:none !important;
+                      pointer-events:none !important;
+                      -webkit-touch-callout:none !important;
+                      -webkit-user-modify:read-only !important;
+                    }
                     p {
                       margin-bottom: 14px;
+                      user-select:none !important;
+                      -webkit-user-select:none !important;
+                      pointer-events:none !important;
+                      -webkit-user-modify:read-only !important;
                     }
                     p:last-child {
                       margin-bottom: 0;
@@ -324,13 +374,30 @@ export default function NotificationCard({ notification, onBack, notificationId 
                       width: 100%;
                       box-sizing: border-box;
                       color: #1F2937;
+                      user-select:none !important;
+                      -webkit-user-select:none !important;
+                      pointer-events:none !important;
+                      -webkit-user-modify:read-only !important;
                     }
                     strong {
                       color: #111827;
+                      user-select:none !important;
+                      -webkit-user-select:none !important;
+                      -webkit-user-modify:read-only !important;
                     }
                     a {
                       color: #2563EB;
                       text-decoration: underline;
+                      user-select:none !important;
+                      -webkit-user-select:none !important;
+                      pointer-events:none !important;
+                      -webkit-user-modify:read-only !important;
+                    }
+                    div {
+                      user-select:none !important;
+                      -webkit-user-select:none !important;
+                      pointer-events:none !important;
+                      -webkit-user-modify:read-only !important;
                     }
                     `,
                   }}
@@ -510,6 +577,8 @@ const styles = StyleSheet.create({
   descriptionTextWrapper: {
     flex: 1,
     width: '100%',
+    // Prevent all interactions
+    pointerEvents: 'none',
   },
   bodyText: {
     fontSize: 16,

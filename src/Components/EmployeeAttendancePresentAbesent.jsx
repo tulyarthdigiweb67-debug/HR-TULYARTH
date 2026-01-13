@@ -11,6 +11,7 @@ import { LinearGradient } from 'react-native-linear-gradient';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchEmployeeList } from '../redux/slices/employeeListSlice';
 import { fetchEmployeeLeaveList } from '../redux/slices/employeeLeaveListSlice';
+import { fetchAttendanceSummary } from '../redux/slices/attendanceSummarySlice';
 
 const getInitials = (value = '') => {
   const sanitized = value.trim();
@@ -50,6 +51,16 @@ const buildLeaveMeta = (leave, index) => {
   };
 };
 
+const buildSummaryEmployeeMeta = (employee, index) => {
+  const displayName = (employee?.name || '').trim();
+  return {
+    id: String(employee?.employee_id ?? `summary-${index}`),
+    name: displayName || 'Unknown',
+    designation: employee?.designation || '—',
+    department: employee?.department || '—',
+  };
+};
+
 export default function EmployeeAttendancePresentAbesent({ onBack }) {
   const dispatch = useDispatch();
   const {
@@ -60,6 +71,38 @@ export default function EmployeeAttendancePresentAbesent({ onBack }) {
     items: leaveItems = [],
     loading: leaveLoading = false,
   } = useSelector(state => state.employeeLeaveList || { items: [], loading: false });
+  const {
+    loading: attendanceSummaryLoading = false,
+    error: attendanceSummaryError = null,
+    success: attendanceSummarySuccess = false,
+    date: attendanceSummaryDate = null,
+    totalEmployees: attendanceSummaryTotal = 0,
+    presentEmployees: attendanceSummaryPresent = [],
+    absentEmployees: attendanceSummaryAbsent = [],
+    raw: attendanceSummaryRaw = null,
+  } = useSelector(state => state.attendanceSummary || {});
+
+  useEffect(() => {
+    console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Component mounted');
+    console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Fetching attendance summary API');
+    dispatch(fetchAttendanceSummary());
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (attendanceSummaryLoading) {
+      console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Attendance summary loading...');
+    }
+    if (attendanceSummaryRaw) {
+      console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Attendance summary data received:', attendanceSummaryRaw);
+      console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Total Employees:', attendanceSummaryTotal);
+      console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Present Employees:', attendanceSummaryPresent);
+      console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Absent Employees:', attendanceSummaryAbsent);
+      console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Date:', attendanceSummaryDate);
+    }
+    if (attendanceSummaryError) {
+      console.log('[EMPLOYEE_ATTENDANCE_PRESENT_ABSENT] Attendance summary error:', attendanceSummaryError);
+    }
+  }, [attendanceSummaryLoading, attendanceSummaryRaw, attendanceSummaryError, attendanceSummaryTotal, attendanceSummaryPresent, attendanceSummaryAbsent, attendanceSummaryDate]);
 
   useEffect(() => {
     if (!employeeItems || employeeItems.length === 0) {
@@ -96,7 +139,7 @@ export default function EmployeeAttendancePresentAbesent({ onBack }) {
       .map(buildLeaveMeta);
   }, [leaveItems, today]);
 
-  const presentEmployees = useMemo(() => {
+  const fallbackPresentEmployees = useMemo(() => {
     if (!employeeItems || employeeItems.length === 0) return [];
     const absentSet = new Set(employeesOnLeave.map(record => record.normalizedName));
     return employeeItems
@@ -104,16 +147,39 @@ export default function EmployeeAttendancePresentAbesent({ onBack }) {
       .filter(employee => !absentSet.has(normalize(employee.name)));
   }, [employeeItems, employeesOnLeave]);
 
-  const absentEmployees = useMemo(() => employeesOnLeave, [employeesOnLeave]);
+  const fallbackAbsentEmployees = useMemo(() => employeesOnLeave, [employeesOnLeave]);
 
-  const totalEmployees = employeeItems?.length || 0;
-  const absentCount = employeesOnLeave.length;
+  const summaryPresentEmployees = useMemo(() => {
+    if (!attendanceSummarySuccess || !Array.isArray(attendanceSummaryPresent)) return null;
+    return attendanceSummaryPresent.map(buildSummaryEmployeeMeta);
+  }, [attendanceSummarySuccess, attendanceSummaryPresent]);
+
+  const summaryAbsentEmployees = useMemo(() => {
+    if (!attendanceSummarySuccess || !Array.isArray(attendanceSummaryAbsent)) return null;
+    return attendanceSummaryAbsent.map(buildSummaryEmployeeMeta);
+  }, [attendanceSummarySuccess, attendanceSummaryAbsent]);
+
+  const presentEmployees = summaryPresentEmployees ?? fallbackPresentEmployees;
+  const absentEmployees = summaryAbsentEmployees ?? fallbackAbsentEmployees;
+
+  const fallbackTotalEmployees = employeeItems?.length || 0;
+  const totalEmployees =
+    attendanceSummarySuccess && typeof attendanceSummaryTotal === 'number'
+      ? attendanceSummaryTotal
+      : fallbackTotalEmployees;
   const presentCount = presentEmployees.length;
+  const absentCount = absentEmployees.length;
   const utilisation = totalEmployees === 0 ? 0 : Math.round((presentCount / totalEmployees) * 100);
 
   const safeTotal = totalEmployees || 1;
   const presentPercentage = totalEmployees === 0 ? 0 : Math.round((presentCount / safeTotal) * 100);
   const absentPercentage = totalEmployees === 0 ? 0 : Math.round((absentCount / safeTotal) * 100);
+
+  const heroDate = useMemo(() => {
+    if (!attendanceSummaryDate) return today;
+    const parsed = new Date(attendanceSummaryDate);
+    return Number.isNaN(parsed.getTime()) ? today : parsed;
+  }, [attendanceSummaryDate, today]);
 
   const insightCards = useMemo(
     () => [
@@ -153,7 +219,7 @@ export default function EmployeeAttendancePresentAbesent({ onBack }) {
     [totalEmployees, presentCount, absentCount, utilisation, presentPercentage, absentPercentage, safeTotal]
   );
 
-  const loading = employeeLoading || leaveLoading;
+  const loading = employeeLoading || leaveLoading || attendanceSummaryLoading;
   const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   const renderEmployeeRow = (employee, variant = 'present') => (
@@ -233,7 +299,7 @@ export default function EmployeeAttendancePresentAbesent({ onBack }) {
             <View style={styles.heroFooterRow}>
                <MaterialCommunityIcons name="calendar-today" size={16} color="#FFD0C0" />
               <Text style={styles.heroFooterText}>
-                {today.toLocaleDateString(undefined, {
+                {heroDate.toLocaleDateString(undefined, {
                   weekday: 'long',
                   month: 'short',
                   day: 'numeric',

@@ -9,28 +9,34 @@ import {
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { fetchEmployeeList } from '../redux/slices/employeeListSlice';
+import { fetchAttendanceList } from '../redux/slices/attendanceListSlice';
 import { SkeletonBlock, SkeletonCircle } from './common/Skeleton';
 
 const DEFAULT_AVATAR = require('../assests/images/avatar.jpg');
 
 export default function AttendanceList({ onViewAttendance }) {
   const dispatch = useDispatch();
-  const { items = [], loading } = useSelector((s) => s.employeeList || { items: [] });
+  const attendanceState = useSelector((s) => s.attendanceList);
+  const { items = [], loading, error } = attendanceState || {
+    items: [],
+    loading: false,
+    error: null,
+  };
+  console.log('[ATTENDANCE_LIST] selector snapshot:', attendanceState);
 
   useEffect(() => {
-    dispatch(fetchEmployeeList());
+    dispatch(fetchAttendanceList());
   }, [dispatch]);
 
   const cards = useMemo(() => {
-    return (items || []).map((e) => ({
-      id: String(e.employee_id || ''),
-      name: `${e.employee_first_name || ''} ${e.employee_last_name || ''}`.trim() || '—',
-      status: 'Active',
-      photo: e.employee_photo
-        ? { uri: `https://hr.tulyarthdigiweb.com/uploads/${e.employee_photo}` }
+    return (items || []).map((record) => ({
+      id: String(record.employee_id || ''),
+      name: `${record.employee_first_name || ''} ${record.employee_last_name || ''}`.trim() || '—',
+      status: record.status || 'Active',
+      photo: record.employee_photo
+        ? { uri: `https://hr.tulyarthdigiweb.com/uploads/${record.employee_photo}` }
         : DEFAULT_AVATAR,
-      employeeData: e, // Store full employee data for navigation
+      employeeData: record,
     }));
   }, [items]);
 
@@ -78,7 +84,12 @@ export default function AttendanceList({ onViewAttendance }) {
             ))}
           </View>
         )}
-        {!loading && cards.length === 0 && <Text style={styles.loadingText}>No employees found.</Text>}
+        {!!error && !loading && (
+          <Text style={styles.loadingText}>Failed to load attendance. Please retry.</Text>
+        )}
+        {!loading && !error && cards.length === 0 && (
+          <Text style={styles.loadingText}>No employees found.</Text>
+        )}
 
         <View style={styles.grid}>
           {cards.map((c) => (

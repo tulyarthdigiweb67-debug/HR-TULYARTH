@@ -13,7 +13,7 @@ import Sidebar from './Sidebar';
 import AdminDashboard from './AdminDashboard';
 import AddEmployee from './AddEmployee';
 import EmployeeList from './EmployeeList';
-import EmployeeAttendance from './EmployeeAttendance';
+import EmployeeAttendance from './employee/EmployeeAttendance';
 import EmployeeAttendanceView from './EmployeeAttendanceView';
 import AttendanceList from './AttendanceList';
 import MyAttendance from './MyAttendance';
@@ -87,10 +87,11 @@ export default function DashboardScreen({ onSignOut }) {
       case 'Attendance List':
         handleNavigate('attendanceList');
         break;
-      case 'Leave Application':
-        handleNavigate('leaveApplication');
+      case 'All Attendance Record':
+        handleNavigate('allAttendanceRecords');
         break;
       case 'Employee Leave List':
+      case 'View Leave':
         handleNavigate('employeeLeaveList');
         break;
       case 'My Attendance':
@@ -295,7 +296,7 @@ export default function DashboardScreen({ onSignOut }) {
       <View style={styles.mainContainer}>
         {/* Current Screen */}
         {renderCurrentScreen()}
-        
+
         {/* Sidebar Overlay */}
         {sidebarOpen && (
           <TouchableOpacity 

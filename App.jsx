@@ -4,7 +4,7 @@ import { StatusBar, Modal, View, Text, TouchableOpacity, StyleSheet } from 'reac
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import SignInScreen from './src/Components/auth/SignInScreen';
 import DashboardScreen from './src/Components/DashboardScreen';
-import EmployeeWorkspace from './src/Components/employee/EmployeeWorkspace';
+import EmployeeProfile from './src/Components/employee/EmployeeProfile';
 import { useDispatch, useSelector } from 'react-redux';
 import OnboardingSplash from './src/Components/OnboardingSplash';
 import { signOut } from './src/redux/slices/authSlice';
@@ -94,7 +94,7 @@ export default function App() {
   const renderSignedInContent = () => {
     if (normalizedRole === 'employee') {
       return (
-        <EmployeeWorkspace
+        <EmployeeProfile
           employeeName={employeeName}
           notificationsCount={notificationsCount}
           onRequestSignOut={() => requestSignOut('employee')}

@@ -20,6 +20,7 @@ import { fetchLatestNotification } from '../redux/slices/adminDashboardSlice';
 import { fetchEmployeeLeaveList } from '../redux/slices/employeeLeaveListSlice';
 import { fetchEmployeeList } from '../redux/slices/employeeListSlice';
 import { LinearGradient } from 'react-native-linear-gradient';
+import { fetchAttendanceSummary } from '../redux/slices/attendanceSummarySlice';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 60;
@@ -48,6 +49,15 @@ const formatEmployeeName = employee => {
   return 'Unknown Employee';
 };
 
+const buildSummaryEmployeeMeta = (employee, index) => {
+  const displayName = (employee?.name || '').trim();
+  return {
+    id: String(employee?.employee_id ?? `attendance-summary-${index}`),
+    name: displayName || 'Unknown',
+    meta: employee?.designation || employee?.department || '—',
+  };
+};
+
 
 
 export default function AdminDashboard({ onNavigate }) {
@@ -62,6 +72,16 @@ export default function AdminDashboard({ onNavigate }) {
   const { items: employeeItems = [], loading: employeeLoading } = useSelector(
     state => state.employeeList || { items: [], loading: false }
   );
+  const {
+    loading: attendanceSummaryLoading = false,
+    error: attendanceSummaryError = null,
+    success: attendanceSummarySuccess = false,
+    totalEmployees: attendanceSummaryTotal = 0,
+    presentEmployees: attendanceSummaryPresent = [],
+    absentEmployees: attendanceSummaryAbsent = [],
+    date: attendanceSummaryDate = null,
+    raw: attendanceSummaryRaw = null,
+  } = useSelector(state => state.attendanceSummary || {});
 
   const scrollViewRef = useRef(null);
   const mainScrollViewRef = useRef(null);
@@ -117,6 +137,7 @@ export default function AdminDashboard({ onNavigate }) {
     dispatch(fetchLatestNotification());
     dispatch(fetchEmployeeLeaveList());
     dispatch(fetchEmployeeList());
+    dispatch(fetchAttendanceSummary());
 
     const interval = setInterval(() => {
       // Only refresh data if user is not actively scrolling AND not at bottom
@@ -126,6 +147,7 @@ export default function AdminDashboard({ onNavigate }) {
         dispatch(fetchLatestNotification());
         dispatch(fetchEmployeeLeaveList());
         dispatch(fetchEmployeeList());
+        dispatch(fetchAttendanceSummary());
       }
     }, 30000);
 
@@ -142,6 +164,18 @@ export default function AdminDashboard({ onNavigate }) {
       }
     };
   }, [dispatch]);
+
+  useEffect(() => {
+    if (attendanceSummaryLoading) {
+      console.log('[ADMIN_DASHBOARD] Attendance summary loading...');
+    }
+    if (attendanceSummaryRaw) {
+      console.log('[ADMIN_DASHBOARD] Attendance summary payload:', attendanceSummaryRaw);
+    }
+    if (attendanceSummaryError) {
+      console.log('[ADMIN_DASHBOARD] Attendance summary error:', attendanceSummaryError);
+    }
+  }, [attendanceSummaryLoading, attendanceSummaryRaw, attendanceSummaryError]);
 
   // Use the latest notification from API instead of calculating from list
   const displayNotification = useMemo(() => {
@@ -286,20 +320,22 @@ export default function AdminDashboard({ onNavigate }) {
       gradientColors: ['#FA709A', '#FEE140'],
       accentColor: '#FA709A',
       addAction: 'employeeAttendanceMark',
-      // Open the same Attendance List screen that is available from the sidebar
-      // (this renders the AttendanceList.jsx component)
-      listAction: 'attendanceList',
+      // Open the All Attendance Records screen for detailed history
+      listAction: 'allAttendanceRecords',
       addLabel: 'Mark',
       listLabel: 'View ',
     },
   ];
 
-  const handleCardListPress = (card) => {
-    if (card.id === 'employee') {
-      // Allow navigation even if scrolling blockers are active
+  const handleCardListPress = card => {
+    const shouldBypassScrollGuards = card.id === 'employee' || card.id === 'notification';
+
+    if (shouldBypassScrollGuards) {
+      // Critical screens should open immediately even during scroll/animations
       safeNavigate(card.listAction, null, { allowWhenBlocked: true });
       return;
     }
+
     safeNavigate(card.listAction);
   };
 
@@ -403,7 +439,7 @@ export default function AdminDashboard({ onNavigate }) {
     );
   }, [employeesOnLeave]);
 
-  const presentEmployees = useMemo(() => {
+  const fallbackPresentEmployees = useMemo(() => {
     if (!employeeItems || employeeItems.length === 0) return [];
     return employeeItems
       .map(employee => ({
@@ -421,7 +457,7 @@ export default function AdminDashboard({ onNavigate }) {
       .filter(employee => !absentNamesLookup.has(normalizeName(employee.name)));
   }, [employeeItems, absentNamesLookup]);
 
-  const absentEmployees = useMemo(() => {
+  const fallbackAbsentEmployees = useMemo(() => {
     return employeesOnLeave.map((leave, index) => {
       const leaveId = leave.l_id ? String(leave.l_id) : `absent-${index}`;
       return {
@@ -432,12 +468,25 @@ export default function AdminDashboard({ onNavigate }) {
     });
   }, [employeesOnLeave]);
 
+  const summaryPresentEmployees = useMemo(() => {
+    if (!attendanceSummarySuccess || !Array.isArray(attendanceSummaryPresent)) {
+      return null;
+    }
+    return attendanceSummaryPresent.map(buildSummaryEmployeeMeta);
+  }, [attendanceSummarySuccess, attendanceSummaryPresent]);
+
+  const summaryAbsentEmployees = useMemo(() => {
+    if (!attendanceSummarySuccess || !Array.isArray(attendanceSummaryAbsent)) {
+      return null;
+    }
+    return attendanceSummaryAbsent.map(buildSummaryEmployeeMeta);
+  }, [attendanceSummarySuccess, attendanceSummaryAbsent]);
+
   const dailyAttendanceHighlights = useMemo(() => {
-    return {
-      present: presentEmployees,
-      absent: absentEmployees,
-    };
-  }, [presentEmployees, absentEmployees]);
+    const present = summaryPresentEmployees ?? fallbackPresentEmployees;
+    const absent = summaryAbsentEmployees ?? fallbackAbsentEmployees;
+    return { present, absent };
+  }, [summaryPresentEmployees, summaryAbsentEmployees, fallbackPresentEmployees, fallbackAbsentEmployees]);
 
   const employeeDirectory = useMemo(() => {
     const rows = (employeeItems || []).map((employee, index) => {
@@ -1044,8 +1093,8 @@ export default function AdminDashboard({ onNavigate }) {
           {/* All Attendance List Card */}
           <TouchableOpacity
             style={styles.attendanceCard}
-            // Navigate to the Attendance List screen (AttendanceList.jsx)
-            onPress={() => safeNavigate('attendanceList')}
+            // Navigate to the All Attendance Records screen
+            onPress={() => safeNavigate('allAttendanceRecords')}
             activeOpacity={0.9}
           >
             <View style={styles.attendanceCardContent}>
@@ -1064,8 +1113,7 @@ export default function AdminDashboard({ onNavigate }) {
                 onPress={() => {
                   // Direct navigation for button press - bypass scroll restrictions
                   if (onNavigate) {
-                    // Open the same Attendance List screen as from the sidebar
-                    onNavigate('attendanceList');
+                    onNavigate('allAttendanceRecords');
                   }
                 }}
               >
